@@ -11,6 +11,7 @@ import (
 	"github.com/docker/cli/opts"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/pkg/errors"
+	"github.com/docker/go-connections/nat"
 	"github.com/spf13/cobra"
 )
 
@@ -31,9 +32,17 @@ type updateOptions struct {
 	pidsLimit          int64
 	cpus               opts.NanoCPUs
 
+
 	nFlag int
+	addPublish 	       string
+	removePublish      string
 
 	containers []string
+}
+
+type Address struct {
+	IP   string
+	Port string
 }
 
 // NewUpdateCommand creates a new cobra.Command for `docker update`
@@ -82,6 +91,8 @@ func NewUpdateCommand(dockerCli command.Cli) *cobra.Command {
 
 	flags.Var(&options.cpus, "cpus", "Number of CPUs")
 	flags.SetAnnotation("cpus", "version", []string{"1.29"})
+	flags.StringVar(&options.addPublish, "add-publish", "", "Publish a container's port(s) to the host (form of port:port)")
+	flags.StringVar(&options.removePublish, "remove-publish", "", "Unpublish a container's port(s) to the host")
 
 	return cmd
 }
@@ -100,6 +111,32 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 			return err
 		}
 	}
+
+	var addPublishOpts []string
+	if options.addPublish != "" {
+		addPublishOpts = append(addPublishOpts, options.addPublish)
+	}
+	var (
+		ports         map[nat.Port]struct{}
+		portBindings  map[nat.Port][]nat.PortBinding
+		convertedOpts []string
+	)
+
+	convertedOpts, err = convertToStandardNotation(addPublishOpts)
+	if err != nil {
+		return err
+	}
+
+	ports, portBindings, err = nat.ParsePortSpecs(convertedOpts)
+	if err != nil {
+		return err
+	}
+
+	// print ports and portBindings
+	fmt.Fprintln(dockerCli.Out(), ports)
+	fmt.Fprintln(dockerCli.Out(), portBindings)
+
+	
 
 	resources := containertypes.Resources{
 		BlkioWeight:        options.blkioWeight,
@@ -139,6 +176,40 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 		}
 		warns = append(warns, r.Warnings...)
 	}
+
+	// print the  
+	for _, container := range options.containers {
+		c, err := dockerCli.Client().ContainerInspect(ctx, container)
+		if err != nil {
+			return err
+		}
+		// c.NetworkSettings.Ports = map[99/tcp:[{0.0.0.0 99} {:: 99}]]
+		for port, portBinding := range portBindings {
+			// it should be the po
+			ip1 := "0.0.0.0"
+			ip2 := "::"
+			// print port and portBinding
+			// a binding of 1:1
+			fmt.Fprintln(dockerCli.Out(), port) // 1/tcp
+			fmt.Fprintln(dockerCli.Out(), portBinding) // [{ 1}]
+			// print out c, ip1, ip2, portBinding
+			fmt.Fprintln(dockerCli.Out(), c)
+			fmt.Fprintln(dockerCli.Out(), ip1)
+			fmt.Fprintln(dockerCli.Out(), ip2)
+
+			c.NetworkSettings.Ports[port] = //
+			
+			// address1 := Address{IP: ip1, Port: portBinding}
+    		// address2 := Address{IP: ip2, Port: portBinding}
+			// addresses := []Address{address1, address2}
+			// // print addresses
+			// fmt.Fprintln(dockerCli.Out(), addresses)
+
+			
+		}
+	}
+
+
 	if len(warns) > 0 {
 		fmt.Fprintln(dockerCli.Out(), strings.Join(warns, "\n"))
 	}
