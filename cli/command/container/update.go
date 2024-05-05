@@ -112,6 +112,21 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 		}
 	}
 
+	var hostPort string
+	if options.removePublish != "" {
+		// remove extraneous whitespace
+		hostPort = strings.TrimSpace(options.removePublish)
+		// declare two uint64 variables to store the start and end of the port range
+		if len(hostPort) > 0 {
+			_, _, err = nat.ParsePortRange(hostPort)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+
+
 	var addPublishOpts []string
 	if options.addPublish != "" {
 		addPublishOpts = append(addPublishOpts, options.addPublish)
@@ -183,29 +198,31 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 		if err != nil {
 			return err
 		}
-		// c.NetworkSettings.Ports = map[99/tcp:[{0.0.0.0 99} {:: 99}]]
+
+		combinedPortBindings := c.HostConfig.PortBindings
+		for from, frontend := range portBindings {
+			combinedPortBindings[nat.Port(from)] = frontend
+		}
+
+		// remove-publish
+		if hostPort != "" {
+			for port, portBinding := range combinedPortBindings {
+				if portBinding[0].HostPort == hostPort {
+					delete(combinedPortBindings, port)
+				}
+			}
+		}
+
+
+
+		fmt.Fprintln(dockerCli.Out(), c.HostConfig)
+		
 		for port, portBinding := range portBindings {
-			// it should be the po
 			ip1 := "0.0.0.0"
 			ip2 := "::"
-			// print port and portBinding
-			// a binding of 1:1
-			fmt.Fprintln(dockerCli.Out(), port) // 1/tcp
-			fmt.Fprintln(dockerCli.Out(), portBinding) // [{ 1}]
-			// print out c, ip1, ip2, portBinding
-			fmt.Fprintln(dockerCli.Out(), c)
-			fmt.Fprintln(dockerCli.Out(), ip1)
-			fmt.Fprintln(dockerCli.Out(), ip2)
-
-			c.NetworkSettings.Ports[port] = //
-			
-			// address1 := Address{IP: ip1, Port: portBinding}
-    		// address2 := Address{IP: ip2, Port: portBinding}
-			// addresses := []Address{address1, address2}
-			// // print addresses
-			// fmt.Fprintln(dockerCli.Out(), addresses)
-
-			
+			from := nat.Port(port)
+			frontends := []nat.PortBinding{{HostIP: ip1, HostPort: portBinding[0].HostPort}, {HostIP: ip2, HostPort: portBinding[0].HostPort}}
+			c.NetworkSettings.Ports[from] = frontends
 		}
 	}
 
