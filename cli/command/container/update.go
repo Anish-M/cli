@@ -34,8 +34,8 @@ type updateOptions struct {
 
 
 	nFlag int
-	addPublish 	       string
-	removePublish      string
+	addPublish 	       opts.ListOpts
+	removePublish      opts.ListOpts
 
 	containers []string
 }
@@ -47,7 +47,11 @@ type Address struct {
 
 // NewUpdateCommand creates a new cobra.Command for `docker update`
 func NewUpdateCommand(dockerCli command.Cli) *cobra.Command {
-	var options updateOptions
+	// var options updateOptions
+	options := &updateOptions{
+		addPublish:           opts.NewListOpts(nil),
+		removePublish:        opts.NewListOpts(nil),
+	}
 
 	cmd := &cobra.Command{
 		Use:   "update [OPTIONS] CONTAINER [CONTAINER...]",
@@ -56,7 +60,7 @@ func NewUpdateCommand(dockerCli command.Cli) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.containers = args
 			options.nFlag = cmd.Flags().NFlag()
-			return runUpdate(cmd.Context(), dockerCli, &options)
+			return runUpdate(cmd.Context(), dockerCli, options)
 		},
 		Annotations: map[string]string{
 			"aliases": "docker container update, docker update",
@@ -91,8 +95,8 @@ func NewUpdateCommand(dockerCli command.Cli) *cobra.Command {
 
 	flags.Var(&options.cpus, "cpus", "Number of CPUs")
 	flags.SetAnnotation("cpus", "version", []string{"1.29"})
-	flags.StringVar(&options.addPublish, "add-publish", "", "Publish a container's port(s) to the host (form of port:port)")
-	flags.StringVar(&options.removePublish, "remove-publish", "", "Unpublish a container's port(s) to the host")
+	flags.VarP(&options.addPublish, "add-publish", "", "Publish a container's port(s) to the host (form of port:port)")
+	flags.VarP(&options.removePublish, "remove-publish", "", "Unpublish a container's port(s) to the host")
 
 	return cmd
 }
@@ -112,46 +116,18 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 		}
 	}
 
-	var hostPort string
-	if options.removePublish != "" {
-		// remove extraneous whitespace
-		hostPort = strings.TrimSpace(options.removePublish)
-		// declare two uint64 variables to store the start and end of the port range
-		if len(hostPort) > 0 {
-			_, _, err = nat.ParsePortRange(hostPort)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-
-
-	var addPublishOpts []string
-	if options.addPublish != "" {
-		addPublishOpts = append(addPublishOpts, options.addPublish)
-	}
-	var (
-		ports         map[nat.Port]struct{}
-		portBindings  map[nat.Port][]nat.PortBinding
-		convertedOpts []string
-	)
-
-	convertedOpts, err = convertToStandardNotation(addPublishOpts)
-	if err != nil {
-		return err
-	}
-
-	ports, portBindings, err = nat.ParsePortSpecs(convertedOpts)
-	if err != nil {
-		return err
-	}
-
-	// print ports and portBindings
-	fmt.Fprintln(dockerCli.Out(), ports)
-	fmt.Fprintln(dockerCli.Out(), portBindings)
-
-	
+	// var hostPort string
+	// if options.removePublish != "" {
+	// 	// remove extraneous whitespace
+	// 	hostPort = strings.TrimSpace(options.removePublish)
+	// 	// declare two uint64 variables to store the start and end of the port range
+	// 	if len(hostPort) > 0 {
+	// 		_, _, err = nat.ParsePortRange(hostPort)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 	}
+	// }
 
 	resources := containertypes.Resources{
 		BlkioWeight:        options.blkioWeight,
@@ -182,6 +158,81 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 		warns []string
 		errs  []string
 	)
+
+	addPublishOpts := options.addPublish.GetAll()
+	var (
+		addPorts         map[nat.Port]struct{}
+		addPortBindings  map[nat.Port][]nat.PortBinding
+		addConvertedOpts []string
+	)
+
+	addConvertedOpts, err = convertToStandardNotation(addPublishOpts)
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+
+	addPorts, addPortBindings, err = nat.ParsePortSpecs(addConvertedOpts)
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+
+	fmt.Fprintln(dockerCli.Out(), "addPorts", addPorts)
+	fmt.Fprintln(dockerCli.Out(), "addPortBindings", addPortBindings)
+
+	removePublishOpts := options.removePublish.GetAll()
+	var (
+		removePorts         map[nat.Port]struct{}
+		removePortBindings  map[nat.Port][]nat.PortBinding
+		removeConvertedOpts []string
+	)
+
+	removeConvertedOpts, err = convertToStandardNotation(removePublishOpts)
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+
+	removePorts, removePortBindings, err = nat.ParsePortSpecs(removeConvertedOpts)
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+
+	fmt.Fprintln(dockerCli.Out(), "removePorts", removePorts)
+	fmt.Fprintln(dockerCli.Out(), "removePortBindings", removePortBindings)
+
+	// print the portBindings of each container
+	for _, container := range options.containers {
+		c, err := dockerCli.Client().ContainerInspect(ctx, container)
+		if err != nil {
+			return err
+		}
+
+		combinedPortBindings := c.HostConfig.PortBindings
+		for from, frontend := range addPortBindings {
+			combinedPortBindings[nat.Port(from)] = frontend
+		}
+
+		// // remove-publish
+		// if hostPort != "" {
+		// 	for port, portBinding := range combinedPortBindings {
+		// 		if portBinding[0].HostPort == hostPort {
+		// 			delete(combinedPortBindings, port)
+		// 		}
+		// 	}
+		// }
+
+
+		// PortBindings are together in combinedPortBindings
+		fmt.Fprintln(dockerCli.Out(), container, combinedPortBindings)
+		
+		// for port, portBinding := range portBindings {
+		// 	ip1 := "0.0.0.0"
+		// 	ip2 := "::"
+		// 	from := nat.Port(port)
+		// 	frontends := []nat.PortBinding{{HostIP: ip1, HostPort: portBinding[0].HostPort}, {HostIP: ip2, HostPort: portBinding[0].HostPort}}
+		// 	c.NetworkSettings.Ports[from] = frontends
+		// }
+	}
+
 	for _, container := range options.containers {
 		r, err := dockerCli.Client().ContainerUpdate(ctx, container, updateConfig)
 		if err != nil {
@@ -190,40 +241,6 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 			fmt.Fprintln(dockerCli.Out(), container)
 		}
 		warns = append(warns, r.Warnings...)
-	}
-
-	// print the  
-	for _, container := range options.containers {
-		c, err := dockerCli.Client().ContainerInspect(ctx, container)
-		if err != nil {
-			return err
-		}
-
-		combinedPortBindings := c.HostConfig.PortBindings
-		for from, frontend := range portBindings {
-			combinedPortBindings[nat.Port(from)] = frontend
-		}
-
-		// remove-publish
-		if hostPort != "" {
-			for port, portBinding := range combinedPortBindings {
-				if portBinding[0].HostPort == hostPort {
-					delete(combinedPortBindings, port)
-				}
-			}
-		}
-
-
-
-		fmt.Fprintln(dockerCli.Out(), c.HostConfig)
-		
-		for port, portBinding := range portBindings {
-			ip1 := "0.0.0.0"
-			ip2 := "::"
-			from := nat.Port(port)
-			frontends := []nat.PortBinding{{HostIP: ip1, HostPort: portBinding[0].HostPort}, {HostIP: ip2, HostPort: portBinding[0].HostPort}}
-			c.NetworkSettings.Ports[from] = frontends
-		}
 	}
 
 
