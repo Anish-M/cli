@@ -220,9 +220,8 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 						delete(combinedPortBindings, k)
 					}
 				}
-			}
-			// if only the host port is specified (e.g. 8080), remove all bindings for that port 
-			else {
+			} else {
+				// if only the host port is specified (e.g. 8080), remove all bindings for that port 
 				for k, v := range combinedPortBindings {
 					if v[0].HostPort == from.Port() {
 						delete(combinedPortBindings, k)
