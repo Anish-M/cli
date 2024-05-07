@@ -3,7 +3,6 @@ package container
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"net"
 	"sort"
 	"strconv"
@@ -76,12 +75,8 @@ func runPort(ctx context.Context, dockerCli command.Cli, opts *portOptions) erro
 			out = append(out, net.JoinHostPort(frontend.HostIP, frontend.HostPort))
 		}
 	} else {
-		fmt.Println(c.HostConfig)
 		for from, frontends := range c.NetworkSettings.Ports {
-			fmt.Println(from, frontends)
 			for _, frontend := range frontends {
-				// print the type of from, frontend.HostIP, and frontend.HostPort and frontend
-				fmt.Println(reflect.TypeOf(from), reflect.TypeOf(frontend.HostIP), reflect.TypeOf(frontend.HostPort), reflect.TypeOf(frontend))
 				out = append(out, fmt.Sprintf("%s -> %s", from, net.JoinHostPort(frontend.HostIP, frontend.HostPort)))
 			}
 		}

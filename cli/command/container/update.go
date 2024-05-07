@@ -211,26 +211,30 @@ func runUpdate(ctx context.Context, dockerCli command.Cli, options *updateOption
 			combinedPortBindings[nat.Port(from)] = frontend
 		}
 
-		// // remove-publish
-		// if hostPort != "" {
-		// 	for port, portBinding := range combinedPortBindings {
-		// 		if portBinding[0].HostPort == hostPort {
-		// 			delete(combinedPortBindings, port)
-		// 		}
-		// 	}
-		// }
+		// remove-publish
+		for from, frontend := range removePortBindings {
+			// if the entire binding is specified (e.g. 8080:80), remove it
+			if frontend[0].HostPort != "" {
+				for k, v := range combinedPortBindings {
+					if v[0].HostPort == frontend[0].HostPort && k == from {
+						delete(combinedPortBindings, k)
+					}
+				}
+			}
+			// if only the host port is specified (e.g. 8080), remove all bindings for that port 
+			else {
+				for k, v := range combinedPortBindings {
+					if v[0].HostPort == from.Port() {
+						delete(combinedPortBindings, k)
+					}
+				}
+			}
+			
+		}
 
 
-		// PortBindings are together in combinedPortBindings
 		fmt.Fprintln(dockerCli.Out(), container, combinedPortBindings)
 		
-		// for port, portBinding := range portBindings {
-		// 	ip1 := "0.0.0.0"
-		// 	ip2 := "::"
-		// 	from := nat.Port(port)
-		// 	frontends := []nat.PortBinding{{HostIP: ip1, HostPort: portBinding[0].HostPort}, {HostIP: ip2, HostPort: portBinding[0].HostPort}}
-		// 	c.NetworkSettings.Ports[from] = frontends
-		// }
 	}
 
 	for _, container := range options.containers {
